@@ -171,8 +171,8 @@ var grantReplacements = map[GrantType]map[GrantPrivilege]GrantPrivileges{
 		"ALL PRIVILEGES": {"CREATE", "USAGE"},
 	},
 	RoleTable: {
-		"ALL":            {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"},
-		"ALL PRIVILEGES": {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER", "MAINTAIN"},
+		"ALL":            {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"},
+		"ALL PRIVILEGES": {"SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"},
 	},
 	RoleColumn: {
 		"ALL":            {"SELECT", "INSERT", "UPDATE", "REFERENCES"},
