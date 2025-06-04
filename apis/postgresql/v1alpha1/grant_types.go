@@ -233,6 +233,11 @@ func (gp *GrantParameters) IsAllTables() bool {
 	return len(gp.Tables) == 1 && strings.EqualFold(gp.Tables[0], "all")
 }
 
+// IsAllSequences return true if query concerns all sequences
+func (gp *GrantParameters) IsAllSequences() bool {
+	return len(gp.Sequences) == 1 && strings.EqualFold(gp.Sequences[0], "all")
+}
+
 // ToStringSlice converts the slice of privileges to strings
 func (gp *GrantPrivileges) ToStringSlice() []string {
 	if gp == nil {
