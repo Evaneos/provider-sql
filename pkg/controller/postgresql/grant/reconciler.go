@@ -337,44 +337,41 @@ func selectSequenceGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error 
 }
 
 func selectTableGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
+
+	gro := gp.WithOption != nil && *gp.WithOption == v1alpha1.GrantOptionGrant
+
+	ep := gp.ExpandPrivileges()
+	sp := ep.ToStringSlice()
+
 	if gp.IsAllTables() {
-		q.String = `WITH tables_in_schema AS (
-			SELECT table_name FROM information_schema.tables
-			WHERE table_schema = $1 AND table_type = 'BASE TABLE'
+		q.String = `
+			WITH tables_in_schema AS (
+				SELECT table_name FROM information_schema.tables
+				WHERE table_schema = $1 AND table_type = 'BASE TABLE'
 			),
 			grants_per_table AS (
-			SELECT table_name, privilege_type FROM information_schema.role_table_grants
-			WHERE grantee = $2 AND table_schema = $1
-			)
+				SELECT table_name, privilege_type, is_grantable FROM information_schema.role_table_grants
+				WHERE grantee = $2 AND table_schema = $1
+			),
+			required_privileges AS (SELECT unnest($3::text[]) AS privilege)
 			SELECT NOT EXISTS (
-			SELECT 1 FROM tables_in_schema t
-			WHERE EXISTS (
-				SELECT 1
-				FROM (
-				SELECT 'SELECT' AS privilege
-				UNION SELECT 'INSERT'
-				UNION SELECT 'UPDATE'
-				UNION SELECT 'DELETE'
-				UNION SELECT 'TRUNCATE'
-				UNION SELECT 'REFERENCES'
-				UNION SELECT 'TRIGGER'
-				) p
+				SELECT 1 FROM tables_in_schema t, required_privileges p
 				WHERE NOT EXISTS (
-				SELECT 1 FROM grants_per_table g
-				WHERE g.table_name = t.table_name
+					SELECT 1
+					FROM grants_per_table g
+					WHERE g.table_name = t.table_name
 					AND g.privilege_type = p.privilege
-				))) AS has_all_grants;`
+					AND g.is_grantable = $4
+				)
+			) AS has_all_grants;`
 
 		q.Parameters = []interface{}{
 			gp.Schema,
 			gp.Role,
+			pq.Array(sp),
+			yesOrNo(gro),
 		}
 	} else {
-		gro := gp.WithOption != nil && *gp.WithOption == v1alpha1.GrantOptionGrant
-
-		ep := gp.ExpandPrivileges()
-		sp := ep.ToStringSlice()
-
 		// Join grantee. Filter by schema name, table name and grantee name.
 		// Finally, perform a permission comparison against expected
 		// permissions.
