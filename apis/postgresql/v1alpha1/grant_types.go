@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	"context"
+	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -225,6 +226,11 @@ func (gp *GrantParameters) ExpandPrivileges() GrantPrivileges {
 	}
 
 	return privileges
+}
+
+// IsAllTables return true if query concerns all tables
+func (gp *GrantParameters) IsAllTables() bool {
+	return len(gp.Tables) == 1 && strings.EqualFold(gp.Tables[0], "all")
 }
 
 // ToStringSlice converts the slice of privileges to strings

@@ -337,37 +337,70 @@ func selectSequenceGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error 
 }
 
 func selectTableGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
-	gro := gp.WithOption != nil && *gp.WithOption == v1alpha1.GrantOptionGrant
+	if gp.IsAllTables() {
+		q.String = `WITH tables_in_schema AS (
+			SELECT table_name FROM information_schema.tables
+			WHERE table_schema = $1 AND table_type = 'BASE TABLE'
+			),
+			grants_per_table AS (
+			SELECT table_name, privilege_type FROM information_schema.role_table_grants
+			WHERE grantee = $2 AND table_schema = $1
+			)
+			SELECT NOT EXISTS (
+			SELECT 1 FROM tables_in_schema t
+			WHERE EXISTS (
+				SELECT 1
+				FROM (
+				SELECT 'SELECT' AS privilege
+				UNION SELECT 'INSERT'
+				UNION SELECT 'UPDATE'
+				UNION SELECT 'DELETE'
+				UNION SELECT 'TRUNCATE'
+				UNION SELECT 'REFERENCES'
+				UNION SELECT 'TRIGGER'
+				) p
+				WHERE NOT EXISTS (
+				SELECT 1 FROM grants_per_table g
+				WHERE g.table_name = t.table_name
+					AND g.privilege_type = p.privilege
+				))) AS has_all_grants;`
 
-	ep := gp.ExpandPrivileges()
-	sp := ep.ToStringSlice()
+		q.Parameters = []interface{}{
+			gp.Schema,
+			gp.Role,
+		}
+	} else {
+		gro := gp.WithOption != nil && *gp.WithOption == v1alpha1.GrantOptionGrant
 
-	// Join grantee. Filter by schema name, table name and grantee name.
-	// Finally, perform a permission comparison against expected
-	// permissions.
-	q.String = "SELECT COUNT(*) = $1 AS ct " +
-		"FROM (SELECT 1 " +
-		"FROM information_schema.role_table_grants " +
-		// Filter by table, schema, role and grantable setting
-		"WHERE table_schema=$2 " +
-		"AND table_name = ANY($3) " +
-		"AND grantee=$4 " +
-		"AND is_grantable=$5 " +
-		"GROUP BY table_name " +
-		// Check privileges match. Convoluted right-hand-side is necessary to
-		// ensure identical sort order of the input permissions.
-		"HAVING array_agg(TEXT(privilege_type) ORDER BY privilege_type ASC) " +
-		"= (SELECT array(SELECT unnest($6::text[]) as perms ORDER BY perms ASC))" +
-		") sub"
-	q.Parameters = []interface{}{
-		len(gp.Tables),
-		gp.Schema,
-		pq.Array(gp.Tables),
-		gp.Role,
-		yesOrNo(gro),
-		pq.Array(sp),
+		ep := gp.ExpandPrivileges()
+		sp := ep.ToStringSlice()
+
+		// Join grantee. Filter by schema name, table name and grantee name.
+		// Finally, perform a permission comparison against expected
+		// permissions.
+		q.String = "SELECT COUNT(*) = $1 AS ct " +
+			"FROM (SELECT 1 " +
+			"FROM information_schema.role_table_grants " +
+			// Filter by table, schema, role and grantable setting
+			"WHERE table_schema=$2 " +
+			"AND table_name = ANY($3) " +
+			"AND grantee=$4 " +
+			"AND is_grantable=$5 " +
+			"GROUP BY table_name " +
+			// Check privileges match. Convoluted right-hand-side is necessary to
+			// ensure identical sort order of the input permissions.
+			"HAVING array_agg(TEXT(privilege_type) ORDER BY privilege_type ASC) " +
+			"= (SELECT array(SELECT unnest($6::text[]) as perms ORDER BY perms ASC))" +
+			") sub"
+		q.Parameters = []interface{}{
+			len(gp.Tables),
+			gp.Schema,
+			pq.Array(gp.Tables),
+			gp.Role,
+			yesOrNo(gro),
+			pq.Array(sp),
+		}
 	}
-
 	return nil
 }
 
@@ -604,21 +637,21 @@ func createTableGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query, ro s
 		return errors.Errorf(errInvalidParams, v1alpha1.RoleTable)
 	}
 
-	tb := strings.Join(prefixAndQuote(*gp.Schema, gp.Tables), ",")
+	tg := tableTarget(gp)
 	sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
 
 	*ql = append(*ql,
 		// REVOKE ANY MATCHING EXISTING PERMISSIONS
-		xsql.Query{String: fmt.Sprintf("REVOKE %s ON TABLE %s FROM %s",
+		xsql.Query{String: fmt.Sprintf("REVOKE %s ON %s FROM %s",
 			sp,
-			tb,
+			tg,
 			ro,
 		)},
 
 		// GRANT REQUESTED PERMISSIONS
-		xsql.Query{String: fmt.Sprintf("GRANT %s ON TABLE %s TO %s %s",
+		xsql.Query{String: fmt.Sprintf("GRANT %s ON %s TO %s %s",
 			sp,
-			tb,
+			tg,
 			ro,
 			withOption(gp.WithOption),
 		)},
@@ -792,9 +825,9 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error { // nol
 		)
 		return nil
 	case v1alpha1.RoleTable:
-		q.String = fmt.Sprintf("REVOKE %s ON TABLE %s FROM %s",
+		q.String = fmt.Sprintf("REVOKE %s ON %s FROM %s",
 			strings.Join(gp.Privileges.ToStringSlice(), ","),
-			strings.Join(prefixAndQuote(*gp.Schema, gp.Tables), ","),
+			tableTarget(gp),
 			ro,
 		)
 		return nil
@@ -866,6 +899,14 @@ func prefixAndQuote(sc string, obj []string) []string {
 		ret[i] = qsc + "." + pq.QuoteIdentifier(v)
 	}
 	return ret
+}
+
+func tableTarget(gp v1alpha1.GrantParameters) string {
+	if gp.IsAllTables() {
+		return fmt.Sprintf("ALL TABLES IN SCHEMA %s", pq.QuoteIdentifier(*gp.Schema))
+	}
+
+	return fmt.Sprintf("%s %s", "TABLE", strings.Join(prefixAndQuote(*gp.Schema, gp.Tables), ","))
 }
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
