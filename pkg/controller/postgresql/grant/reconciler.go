@@ -304,33 +304,69 @@ func selectSequenceGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error 
 
 	ep := gp.ExpandPrivileges()
 	sp := ep.ToStringSlice()
-	// Join grantee. Filter by sequence name, schema name and grantee name.
-	// Finally, perform a permission comparison against expected
-	// permissions.
-	q.String = "SELECT COUNT(*) = $1 AS ct " +
-		"FROM (SELECT 1 FROM pg_class c " +
-		"INNER JOIN pg_namespace n ON c.relnamespace = n.oid, " +
-		"aclexplode(c.relacl) as acl " +
-		"INNER JOIN pg_roles s ON acl.grantee = s.oid " +
-		"WHERE c.relkind = 'S' " +
-		// Filter by sequence, schema, role and grantable setting
-		"AND n.nspname=$2 " +
-		"AND s.rolname=$3 " +
-		"AND c.relname = ANY($4) " +
-		"AND acl.is_grantable=$5 " +
-		"GROUP BY n.nspname, s.rolname, acl.is_grantable " +
-		// Check privileges match. Convoluted right-hand-side is necessary to
-		// ensure identical sort order of the input permissions.
-		"HAVING array_agg(acl.privilege_type ORDER BY privilege_type ASC) " +
-		"= (SELECT array(SELECT unnest($6::text[]) as perms ORDER BY perms ASC))" +
-		") sub"
-	q.Parameters = []interface{}{
-		len(gp.Sequences),
-		gp.Schema,
-		gp.Role,
-		pq.Array(gp.Sequences),
-		gro,
-		pq.Array(sp),
+
+	if gp.IsAllSequences() {
+		q.String = `
+			WITH sequences_in_schema AS (
+				SELECT sequence_name FROM information_schema.sequences
+				WHERE sequence_schema = $1
+			),
+			grants_per_sequence AS (
+				SELECT c.relname AS sequence_name,a.privilege_type,a.is_grantable
+				FROM pg_class c
+				JOIN pg_namespace n ON n.oid = c.relnamespace
+				JOIN lateral aclexplode(c.relacl) a ON true
+				WHERE c.relkind = 'S'  -- Séquences
+					AND n.nspname = $1
+					AND pg_get_userbyid(a.grantee) = $2
+				ORDER BY a.privilege_type
+			),
+			required_privileges AS (SELECT unnest($3::text[]) AS privilege)
+			SELECT NOT EXISTS (
+				SELECT 1 FROM sequences_in_schema s,required_privileges p
+				WHERE NOT EXISTS (
+					SELECT 1 FROM grants_per_sequence g
+					WHERE g.sequence_name = s.sequence_name
+					AND g.privilege_type = p.privilege
+					AND g.is_grantable = $4
+				)
+			) AS has_all_grants;
+		`
+		q.Parameters = []interface{}{
+			gp.Schema,
+			gp.Role,
+			pq.Array(sp),
+			gro,
+		}
+	} else {
+		// Join grantee. Filter by sequence name, schema name and grantee name.
+		// Finally, perform a permission comparison against expected
+		// permissions.
+		q.String = "SELECT COUNT(*) = $1 AS ct " +
+			"FROM (SELECT 1 FROM pg_class c " +
+			"INNER JOIN pg_namespace n ON c.relnamespace = n.oid, " +
+			"aclexplode(c.relacl) as acl " +
+			"INNER JOIN pg_roles s ON acl.grantee = s.oid " +
+			"WHERE c.relkind = 'S' " +
+			// Filter by sequence, schema, role and grantable setting
+			"AND n.nspname=$2 " +
+			"AND s.rolname=$3 " +
+			"AND c.relname = ANY($4) " +
+			"AND acl.is_grantable=$5 " +
+			"GROUP BY n.nspname, s.rolname, acl.is_grantable " +
+			// Check privileges match. Convoluted right-hand-side is necessary to
+			// ensure identical sort order of the input permissions.
+			"HAVING array_agg(acl.privilege_type ORDER BY privilege_type ASC) " +
+			"= (SELECT array(SELECT unnest($6::text[]) as perms ORDER BY perms ASC))" +
+			") sub"
+		q.Parameters = []interface{}{
+			len(gp.Sequences),
+			gp.Schema,
+			gp.Role,
+			pq.Array(gp.Sequences),
+			gro,
+			pq.Array(sp),
+		}
 	}
 
 	return nil
@@ -691,21 +727,21 @@ func createSequenceGrantQueries(gp v1alpha1.GrantParameters, ql *[]xsql.Query, r
 		return errors.Errorf(errInvalidParams, v1alpha1.RoleSequence)
 	}
 
-	sq := strings.Join(prefixAndQuote(*gp.Schema, gp.Sequences), ",")
+	tg := sequenceTarget(gp)
 	sp := strings.Join(gp.Privileges.ToStringSlice(), ",")
 
 	*ql = append(*ql,
 		// REVOKE ANY MATCHING EXISTING PERMISSIONS
-		xsql.Query{String: fmt.Sprintf("REVOKE %s ON SEQUENCE %s FROM %s",
+		xsql.Query{String: fmt.Sprintf("REVOKE %s ON %s FROM %s",
 			sp,
-			sq,
+			tg,
 			ro,
 		)},
 
 		// GRANT REQUESTED PERMISSIONS
-		xsql.Query{String: fmt.Sprintf("GRANT %s ON SEQUENCE %s TO %s %s",
+		xsql.Query{String: fmt.Sprintf("GRANT %s ON %s TO %s %s",
 			sp,
-			sq,
+			tg,
 			ro,
 			withOption(gp.WithOption),
 		)},
@@ -831,7 +867,7 @@ func deleteGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error { // nol
 	case v1alpha1.RoleSequence:
 		q.String = fmt.Sprintf("REVOKE %s ON SEQUENCE %s FROM %s",
 			strings.Join(gp.Privileges.ToStringSlice(), ","),
-			strings.Join(prefixAndQuote(*gp.Schema, gp.Sequences), ","),
+			sequenceTarget(gp),
 			ro,
 		)
 		return nil
@@ -904,6 +940,14 @@ func tableTarget(gp v1alpha1.GrantParameters) string {
 	}
 
 	return fmt.Sprintf("%s %s", "TABLE", strings.Join(prefixAndQuote(*gp.Schema, gp.Tables), ","))
+}
+
+func sequenceTarget(gp v1alpha1.GrantParameters) string {
+	if gp.IsAllSequences() {
+		return fmt.Sprintf("ALL SEQUENCES IN SCHEMA %s", pq.QuoteIdentifier(*gp.Schema))
+	}
+
+	return fmt.Sprintf("%s %s", "SEQUENCE", strings.Join(prefixAndQuote(*gp.Schema, gp.Sequences), ","))
 }
 
 func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.ExternalObservation, error) {
