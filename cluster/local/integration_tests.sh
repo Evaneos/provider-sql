@@ -207,7 +207,21 @@ EOF
   docker exec "${K8S_CLUSTER}-control-plane" ls -la /cache
 
   echo_step "waiting for provider to be installed"
-  "${KUBECTL}" wait "provider.pkg.crossplane.io/${PACKAGE_NAME}" --for=condition=healthy --timeout=240s
+  if ! "${KUBECTL}" wait "provider.pkg.crossplane.io/${PACKAGE_NAME}" --for=condition=healthy --timeout=240s; then
+    echo_error "Provider did not become healthy in time. Dumping logs..."
+    "${KUBECTL}" get all -n crossplane-system
+    "${KUBECTL}" get providerrevision -o wide
+    "${KUBECTL}" get provider -o wide
+    # Get the logs of the provider pod
+    POD_NAME=$("${KUBECTL}" get pods -n crossplane-system -l "pkg.crossplane.io/provider=${PACKAGE_NAME}" -o name)
+    if [ -n "$POD_NAME" ]; then
+      echo "Logs for $POD_NAME:"
+      "${KUBECTL}" logs -n crossplane-system "$POD_NAME" -c package-runtime
+    else
+      echo "No pod found for provider ${PACKAGE_NAME}"
+    fi
+    exit 1
+  fi
 }
 
 cleanup_provider() {
