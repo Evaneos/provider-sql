@@ -48,7 +48,7 @@ func main() {
 		leaderElection           = app.Flag("leader-election", "Use leader election for the controller manager.").Short('l').Default("false").Envar("LEADER_ELECTION").Bool()
 		maxReconcileRate         = app.Flag("max-reconcile-rate", "The global maximum rate per second at which resources may checked for drift from the desired state.").Default("10").Int()
 		enableManagementPolicies = app.Flag("enable-management-policies", "Enable/disable support for Management Policies.").Default("true").Envar("ENABLE_MANAGEMENT_POLICIES").Bool()
-		cacheSyncTimeout         = app.Flag("cache-sync-timeout", "Timeout for syncing caches.").Default("2m").Duration()
+		cacheSyncTimeout         = app.Flag("cache-sync-timeout", "Timeout for controller caches to sync with the Kubernetes API server on startup.").Default("2m").Envar("CACHE_SYNC_TIMEOUT").Duration()
 	)
 	kingpin.MustParse(app.Parse(os.Args[1:]))
 
@@ -65,6 +65,9 @@ func main() {
 
 	cfg, err := ctrl.GetConfig()
 	kingpin.FatalIfError(err, "Cannot get API server rest config")
+
+	cfg.QPS = 100
+	cfg.Burst = 150
 
 	mgr, err := ctrl.NewManager(cfg, ctrl.Options{
 		LeaderElection:   *leaderElection,
