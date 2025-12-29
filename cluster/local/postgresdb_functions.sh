@@ -3,22 +3,62 @@ set -e
 
 setup_postgresdb_no_tls() {
   echo_step "Installing PostgresDB Helm chart into default namespace"
-  postgres_root_pw=$(LC_ALL=C tr -cd "A-Za-z0-9" </dev/urandom | head -c 32)
+  echo_sub_step "Generate Postgres password"
+  set +o pipefail
+  postgres_root_pw=$(LC_ALL=C tr -cd "A-Za-z0-9" </dev/urandom | head -c 32 || true)
+  set -o pipefail
+  echo_step_completed
 
+  # Ensure Bitnami repo is present, then update indexes
+  "${HELM}" repo add bitnami https://charts.bitnami.com/bitnami >/dev/null 2>&1 || true
   "${HELM}" repo update
-  "${HELM}" install postgresdb bitnami/postgresql \
-      --version 11.9.1 \
-      --set global.postgresql.auth.postgresPassword="${postgres_root_pw}" \
-      --wait
+  echo_sub_step "Helm repo add/update done"
+  echo_step_completed
+  # Install or upgrade to tolerate re-runs; increase verbosity and timeout
+  echo_sub_step "Helm upgrade --install bitnami/postgresql (no persistence)"
+  set +e
+  "${HELM}" upgrade --install postgresdb bitnami/postgresql \
+      --version 18.2.0  \
+      --set auth.postgresPassword="${postgres_root_pw}" \
+      --set primary.persistence.enabled=false \
+      --wait \
+      --timeout 10m \
+      --debug
+  rc=$?
+  set -e
+  if [ $rc -ne 0 ]; then
+    echo_info "Helm install failed. Dumping diagnostics..."
+    "${KUBECTL}" get all -A || true
+    "${KUBECTL}" get events --sort-by=.lastTimestamp | tail -n 200 || true
+    "${HELM}" status postgresdb || true
+    echo_error "Helm install/upgrade of PostgresDB failed"
+  fi
+  echo_step_completed
 
-  "${KUBECTL}" create secret generic postgresdb-creds \
-      --from-literal username="postgres" \
-      --from-literal password="${postgres_root_pw}" \
-      --from-literal endpoint="postgresdb-postgresql.default.svc.cluster.local" \
-      --from-literal port="5432"
+  echo_sub_step "Create connection secret postgresdb-creds"
+    "${KUBECTL}" create secret generic postgresdb-creds \
+      --from-literal=username="postgres" \
+      --from-literal=password="${postgres_root_pw}" \
+      --from-literal=endpoint="postgresdb-postgresql.default.svc.cluster.local" \
+      --from-literal=port="5432"
+  echo_step_completed
 
-  "${KUBECTL}" port-forward --namespace default svc/postgresdb-postgresql 5432:5432 | grep -v "Handling connection for" &
+  # Start port-forward; ignore output filtering failures under pipefail
+  echo_sub_step "Start port-forward to svc/postgresdb-postgresql:5432"
+  ( "${KUBECTL}" port-forward --namespace default svc/postgresdb-postgresql 5432:5432 | grep -v "Handling connection for" || true ) &
   PORT_FORWARD_PID=$!
+  # Wait for local port to be ready
+  for i in {1..20}; do
+    if nc -z 127.0.0.1 5432 >/dev/null 2>&1; then
+      echo_sub_step "Port-forward ready (PID: ${PORT_FORWARD_PID})"
+      echo_step_completed
+      break
+    fi
+    sleep 0.5
+    if [ $i -eq 20 ]; then
+      echo_error "Port-forward to PostgreSQL did not become ready"
+    fi
+  done
 }
 
 setup_provider_config_postgres_no_tls() {
@@ -38,6 +78,7 @@ spec:
 EOF
   )"
   echo "${yaml}" | "${KUBECTL}" apply -f -
+  echo_step_completed
 }
 
 create_grantable_objects() {
@@ -341,7 +382,9 @@ delete_postgresdb_resources(){
   "${KUBECTL}" delete --ignore-not-found=true -f "${projectdir}/examples/postgresql/database.yaml"
   "${KUBECTL}" delete -f "${projectdir}/examples/postgresql/role.yaml"
   "${KUBECTL}" delete -f "${projectdir}/examples/postgresql/schema.yaml"
-  echo "${PROVIDER_CONFIG_POSTGRES_YAML}" | "${KUBECTL}" delete -f -
+  if [ -n "${PROVIDER_CONFIG_POSTGRES_YAML:-}" ]; then
+    echo "${PROVIDER_CONFIG_POSTGRES_YAML}" | "${KUBECTL}" delete -f -
+  fi
 
   # ----------- cleaning postgres related resources
 
