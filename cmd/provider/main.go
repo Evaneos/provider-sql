@@ -42,7 +42,7 @@ import (
 func main() {
 	var (
 		app                      = kingpin.New(filepath.Base(os.Args[0]), "SQL support for Crossplane.").DefaultEnvars()
-		debug                    = app.Flag("debug", "Run with debug logging.").Short('d').Bool()
+		debug                    = app.Flag("debug", "Run with debug logging.").Short('d').Envar("DEBUG").Bool()
 		pollInterval             = app.Flag("poll", "Poll interval controls how often an individual resource should be checked for drift.").Default("10m").Duration()
 		syncPeriod               = app.Flag("sync", "How often all resources will be double-checked for drift from the desired state.").Short('s').Default("1h").Duration()
 		leaderElection           = app.Flag("leader-election", "Use leader election for the controller manager.").Short('l').Default("false").Envar("LEADER_ELECTION").Bool()
