@@ -10,7 +10,13 @@ spec:
       selector: {}
       template:
         spec:
-          containers: []
+          containers:
+            - name: package-runtime
+              env:
+                - name: DEBUG
+                  value: "true"
+                - name: CACHE_SYNC_TIMEOUT
+                  value: "5m"
           tolerations:
             - effect: NoSchedule
               key: node.kubernetes.io/role
