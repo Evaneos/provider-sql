@@ -8,32 +8,32 @@ GRN='\033[0;32m'
 RED='\033[0;31m'
 NOC='\033[0m' # No Color
 echo_info() {
-    printf "\n${BLU}%s${NOC}" "$1"
+  printf "\n${BLU}%s${NOC}" "$1"
 }
 echo_step() {
-    printf "\n${BLU}>>>>>>> %s${NOC}\n" "$1"
+  printf "\n${BLU}>>>>>>> %s${NOC}\n" "$1"
 }
 echo_sub_step() {
-    printf "\n${BLU}>>> %s${NOC}\n" "$1"
+  printf "\n${BLU}>>> %s${NOC}\n" "$1"
 }
 
 echo_step_completed() {
-    printf "${GRN} [✔]${NOC}"
+  printf "${GRN} [✔]${NOC}"
 }
 
 echo_success() {
-    printf "\n${GRN}%s${NOC}\n" "$1"
+  printf "\n${GRN}%s${NOC}\n" "$1"
 }
 echo_warn() {
-    printf "\n${YLW}%s${NOC}" "$1"
+  printf "\n${YLW}%s${NOC}" "$1"
 }
 echo_error() {
-    printf "\n${RED}%s${NOC}" "$1"
-    exit 1
+  printf "\n${RED}%s${NOC}" "$1"
+  exit 1
 }
 
 # ------------------------------
-projectdir="$( cd "$( dirname "${BASH_SOURCE[0]}")"/../.. && pwd )"
+projectdir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 
 # get the build environment variables from the special build.vars target in the main makefile
 eval $(make --no-print-directory -C ${projectdir} build.vars)
@@ -47,16 +47,7 @@ eval $(make --no-print-directory -C ${projectdir} build.vars)
 SAFEHOSTARCH="${SAFEHOSTARCH:-amd64}"
 CONTROLLER_IMAGE="${BUILD_REGISTRY}/${PROJECT_NAME}-${SAFEHOSTARCH}"
 
-version_tag="$(cat ${projectdir}/_output/version)"
-# tag as latest version to load into kind cluster
 K8S_CLUSTER="${K8S_CLUSTER:-${BUILD_REGISTRY}-inttests}"
-
-# Optional: set USE_OCI=true to use an in-cluster OCI registry for provider package delivery
-# Modes:
-#  - USE_OCI=true  => Push .xpkg into an in-cluster registry and install Provider from OCI (no host cache, no PVC)
-#  - USE_OCI=false => Extract .xpkg to .gz on host and mount as cache for Crossplane (offline local cache)
-USE_OCI=${USE_OCI:-true}
-
 
 PACKAGE_NAME="provider-sql"
 MARIADB_ROOT_PW=$(openssl rand -base64 32)
@@ -67,12 +58,6 @@ if [ "$skipcleanup" != true ]; then
   function cleanup {
     echo_step "Cleaning up..."
     export KUBECONFIG=
-    # stop port-forward if running
-    if [ -f "${projectdir}/.work/registry-pf.pid" ]; then
-      pfpid=$(cat "${projectdir}/.work/registry-pf.pid" || true)
-      if [ -n "$pfpid" ]; then kill "$pfpid" 2>/dev/null || true; fi
-      rm -f "${projectdir}/.work/registry-pf.pid"
-    fi
     cleanup_cluster
   }
 
@@ -94,96 +79,9 @@ integration_tests_end() {
 }
 
 setup_cluster() {
-  if [ "${USE_OCI}" = true ]; then
-    echo_sub_step "Mode: OCI (no host cache, no PVC)"
-  else
-    echo_sub_step "Mode: Local cache (.gz mounted via PV/PVC)"
-  fi
-  local cache_path="${projectdir}/.work/inttest-package-cache"
   local node_image="kindest/node:${KIND_NODE_IMAGE_TAG}"
 
-  if [ "${USE_OCI}" = true ]; then
-    echo_step "creating k8s cluster (no cache mount) using kind ${KIND_VERSION} and ${node_image}"
-    local config="$( cat <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-EOF
-    )"
-    echo "${config}" | "${KIND}" create cluster --name="${K8S_CLUSTER}" --wait=5m --image="${node_image}" --config=-
-  else
-    echo_step "setting up local package cache (.xpkg -> .gz)"
-    mkdir -p "${cache_path}"
-    echo "created cache dir at ${cache_path}"
-    "${UP}" alpha xpkg xp-extract --from-xpkg "${OUTPUT_DIR}"/xpkg/linux_"${SAFEHOSTARCH}"/"${PACKAGE_NAME}"-"${VERSION}".xpkg -o "${cache_path}/${PACKAGE_NAME}-${VERSION}.gz"
-    chmod 644 "${cache_path}/${PACKAGE_NAME}-${VERSION}.gz"
-
-    echo_step "creating k8s cluster (with cache mount) using kind ${KIND_VERSION} and ${node_image}"
-    local config="$( cat <<EOF
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-- role: control-plane
-  extraMounts:
-  - hostPath: "${cache_path}/"
-    containerPath: /cache
-EOF
-    )"
-    echo "${config}" | "${KIND}" create cluster --name="${K8S_CLUSTER}" --wait=5m --image="${node_image}" --config=-
-  fi
-
-  echo_step "load controller runtime image into kind cluster"
-  "${KIND}" load docker-image "${CONTROLLER_IMAGE}" --name="${K8S_CLUSTER}"
-
-  echo_step "create crossplane-system namespace"
-
-  "${KUBECTL}" create ns crossplane-system
-
-  if [ "${USE_OCI}" != true ]; then
-    echo_step "create persistent volume for mounting package-cache"
-
-    local pv_yaml="$( cat <<EOF
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: package-cache
-  labels:
-    type: local
-spec:
-  storageClassName: manual
-  capacity:
-    storage: 5Mi
-  accessModes:
-    - ReadWriteOnce
-  hostPath:
-    path: "/cache"
-EOF
-    )"
-
-    echo "${pv_yaml}" | "${KUBECTL}" create -f -
-
-    echo_step "create persistent volume claim for mounting package-cache"
-
-    local pvc_yaml="$( cat <<EOF
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: package-cache
-  namespace: crossplane-system
-spec:
-  accessModes:
-    - ReadWriteOnce
-  volumeName: package-cache
-  storageClassName: manual
-  resources:
-    requests:
-      storage: 1Mi
-EOF
-    )"
-
-    echo "${pvc_yaml}" | "${KUBECTL}" create -f -
-  fi
+  "${KIND}" create cluster --name="${K8S_CLUSTER}" --wait=5m --image="${node_image}"
 }
 
 cleanup_cluster() {
@@ -191,156 +89,26 @@ cleanup_cluster() {
 }
 
 setup_crossplane() {
-  echo_step "installing crossplane from stable channel"
+  local channel="${CROSSPLANE_HELM_CHANNEL:-stable}"
+  echo_step "installing crossplane from ${channel} channel"
 
-  "${HELM}" repo add crossplane-stable https://charts.crossplane.io/stable/ --force-update
-  local chart_version="$("${HELM}" search repo crossplane-stable/crossplane | awk 'FNR == 2 {print $2}')"
+  "${HELM}" repo add crossplane-channel "https://charts.crossplane.io/${channel}/" --force-update
+
+  local chart_version="${CROSSPLANE_HELM_CHART_VERSION:-}"
+  if [ -z "${chart_version}" ]; then
+    chart_version="$("${HELM}" search repo crossplane-channel/crossplane | awk 'FNR == 2 {print $2}')"
+  fi
   echo_info "using crossplane version ${chart_version}"
   echo
-  if [ "${USE_OCI}" = true ]; then
-    echo_sub_step "Crossplane cache: emptyDir (OCI mode)"
-    "${HELM}" install crossplane --namespace crossplane-system crossplane-stable/crossplane --version ${chart_version} --wait
-  else
-    echo_sub_step "Crossplane cache: PVC 'package-cache' (local .gz mode)"
-    "${HELM}" install crossplane --namespace crossplane-system crossplane-stable/crossplane --version ${chart_version} --wait --set packageCache.pvc=package-cache
-  fi
-}
 
-setup_local_registry() {
-  [ "${USE_OCI}" = true ] || return 0
-  echo_step "deploy in-cluster OCI registry"
-  local reg_yaml="$( cat <<EOF
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: registry
-  namespace: crossplane-system
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: registry
-  template:
-    metadata:
-      labels:
-        app: registry
-    spec:
-      containers:
-        - name: registry
-          image: registry:3.0.0
-          ports:
-            - containerPort: 5000
-          env:
-            - name: REGISTRY_STORAGE_DELETE_ENABLED
-              value: "true"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: registry
-  namespace: crossplane-system
-spec:
-  selector:
-    app: registry
-  ports:
-    - name: http
-      protocol: TCP
-      port: 5000
-      targetPort: 5000
-EOF
-  )"
-  echo "${reg_yaml}" | "${KUBECTL}" apply -f -
-  "${KUBECTL}" -n crossplane-system rollout status deploy/registry --timeout=120s
-
-  echo_step "port-forward registry for pushing xpkg"
-  mkdir -p "${projectdir}/.work"
-  ( kubectl -n crossplane-system port-forward svc/registry 5000:5000 >/dev/null 2>&1 & echo $! >"${projectdir}/.work/registry-pf.pid" )
-  for i in {1..20}; do nc -z localhost 5000 && break || sleep 0.5; done
-}
-
-push_xpkg_to_registry() {
-  [ "${USE_OCI}" = true ] || return 0
-  echo_step "push xpkg to in-cluster registry"
-  local xpkg_path="${OUTPUT_DIR}/xpkg/linux_${SAFEHOSTARCH}/${PACKAGE_NAME}-${VERSION}.xpkg"
-  local ref_ver="localhost:5000/${PACKAGE_NAME}:${version_tag}"
-  local ref_latest="localhost:5000/${PACKAGE_NAME}:latest"
-  "${UP}" xpkg push ${ref_ver} -f "${xpkg_path}"
-  "${UP}" xpkg push ${ref_latest} -f "${xpkg_path}"
-  echo_info "pushed tags: ${ref_ver}, ${ref_latest}"
+  "${HELM}" install crossplane --namespace crossplane-system --create-namespace \
+    crossplane-channel/crossplane \
+    --version "${chart_version}" --wait
 }
 
 setup_provider() {
-  echo_step "installing provider"
-
-  if [ "${USE_OCI}" = true ]; then
-    echo_sub_step "Provider package from OCI: registry.crossplane-system.svc.cluster.local:5000/${PACKAGE_NAME}:latest"
-    local yaml="$( cat <<EOF
-apiVersion: pkg.crossplane.io/v1beta1
-kind: DeploymentRuntimeConfig
-metadata:
-  name: debug-config
-spec:
-  deploymentTemplate:
-    spec:
-      selector: {}
-      template:
-        spec:
-          containers:
-            - name: package-runtime
-              image: "${CONTROLLER_IMAGE}"
-              args:
-                - --debug
----
-apiVersion: pkg.crossplane.io/v1
-kind: Provider
-metadata:
-  name: "${PACKAGE_NAME}"
-spec:
-  runtimeConfigRef:
-    name: debug-config
-  package: "registry.crossplane-system.svc.cluster.local:5000/${PACKAGE_NAME}:latest"
-  packagePullPolicy: IfNotPresent
-EOF
-    )"
-    echo "${yaml}" | "${KUBECTL}" apply -f -
-  else
-    echo_sub_step "Provider package from local cache: ${PACKAGE_NAME}-${VERSION}.gz"
-    local yaml="$( cat <<EOF
-apiVersion: pkg.crossplane.io/v1beta1
-kind: DeploymentRuntimeConfig
-metadata:
-  name: debug-config
-spec:
-  deploymentTemplate:
-    spec:
-      selector: {}
-      template:
-        spec:
-          containers:
-            - name: package-runtime
-              image: "${CONTROLLER_IMAGE}"
-              args:
-                - --debug
----
-apiVersion: pkg.crossplane.io/v1
-kind: Provider
-metadata:
-  name: "${PACKAGE_NAME}"
-spec:
-  runtimeConfigRef:
-    name: debug-config
-  package: "${PACKAGE_NAME}-${VERSION}.gz"
-  packagePullPolicy: Never
-EOF
-    )"
-    echo "${yaml}" | "${KUBECTL}" apply -f -
-  fi
-
-  if [ "${USE_OCI}" != true ]; then
-    # printing the cache dir contents can be useful for troubleshooting local cache failures
-    echo_step "check kind node cache dir contents"
-    docker exec "${K8S_CLUSTER}-control-plane" ls -la /cache
-  fi
+  echo_step "deploying provider via local.xpkg.deploy"
+  make -C "${projectdir}" local.xpkg.deploy.provider.${PACKAGE_NAME} KIND_CLUSTER_NAME="${K8S_CLUSTER}"
 
   echo_step "waiting for provider to be installed"
   "${KUBECTL}" wait "provider.pkg.crossplane.io/${PACKAGE_NAME}" --for=condition=healthy --timeout=180s
@@ -350,7 +118,7 @@ cleanup_provider() {
   echo_step "uninstalling provider"
 
   "${KUBECTL}" delete provider.pkg.crossplane.io "${PACKAGE_NAME}"
-  "${KUBECTL}" delete deploymentruntimeconfig.pkg.crossplane.io debug-config
+  "${KUBECTL}" delete deploymentruntimeconfig.pkg.crossplane.io runtimeconfig-${PACKAGE_NAME}
 
   echo_step "waiting for provider pods to be deleted"
   timeout=60
@@ -362,7 +130,7 @@ cleanup_provider() {
     if [[ $current -ge $timeout ]]; then
       echo_error "timeout of ${timeout}s has been reached"
     fi
-    sleep $step;
+    sleep $step
   done
 }
 
@@ -383,21 +151,21 @@ setup_tls_certs() {
 
   echo_step "creating secret for the TLS certificates and keys"
   "${KUBECTL}" create secret generic mariadb-server-tls \
-      --from-file=ca-cert.pem \
-      --from-file=server-cert.pem \
-      --from-file=server-key.pem
+    --from-file=ca-cert.pem \
+    --from-file=server-cert.pem \
+    --from-file=server-key.pem
 
   echo_step "creating secret for the client TLS certificates and keys"
   "${KUBECTL}" create secret generic mariadb-client-tls \
-      --from-file=ca-cert.pem \
-      --from-file=client-cert.pem \
-      --from-file=client-key.pem
+    --from-file=ca-cert.pem \
+    --from-file=client-cert.pem \
+    --from-file=client-key.pem
 }
 
 cleanup_tls_certs() {
   echo_step "cleaning up TLS certificate files and secrets"
   for file in *.pem *.srl; do
-      rm -f "$file"
+    rm -f "$file"
   done
   "${KUBECTL}" delete secret mariadb-server-tls
   "${KUBECTL}" delete secret mariadb-client-tls
@@ -405,7 +173,8 @@ cleanup_tls_certs() {
 
 setup_provider_config_no_tls() {
   echo_step "creating ProviderConfig with no TLS"
-  local yaml="$( cat <<EOF
+  local yaml="$(
+    cat <<EOF
 apiVersion: mysql.sql.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
@@ -424,7 +193,8 @@ EOF
 
 setup_provider_config_tls() {
   echo_step "creating ProviderConfig with TLS"
-  local yaml="$( cat <<EOF
+  local yaml="$(
+    cat <<EOF
 apiVersion: mysql.sql.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
@@ -467,17 +237,17 @@ cleanup_provider_config() {
 setup_mariadb_no_tls() {
   echo_step "installing MariaDB with no TLS"
   "${KUBECTL}" create secret generic mariadb-creds \
-  --from-literal=username="root" \
-  --from-literal=password="${MARIADB_ROOT_PW}" \
-  --from-literal=endpoint="mariadb.default.svc.cluster.local" \
-  --from-literal=port="3306"
+    --from-literal=username="root" \
+    --from-literal=password="${MARIADB_ROOT_PW}" \
+    --from-literal=endpoint="mariadb.default.svc.cluster.local" \
+    --from-literal=port="3306"
 
   "${HELM}" repo add bitnami https://charts.bitnami.com/bitnami >/dev/null
   "${HELM}" repo update
   "${HELM}" install mariadb bitnami/mariadb \
-      --version 24.0.2 \
-      --set auth.rootPassword="${MARIADB_ROOT_PW}" \
-      --wait
+    --version 24.0.2 \
+    --set auth.rootPassword="${MARIADB_ROOT_PW}" \
+    --wait
 }
 
 setup_mariadb_tls() {
@@ -491,7 +261,8 @@ setup_mariadb_tls() {
     --from-file=client-cert.pem \
     --from-file=client-key.pem
 
-  local values=$(cat <<EOF
+  local values=$(
+    cat <<EOF
 auth:
   rootPassword: ${MARIADB_ROOT_PW}
 primary:
@@ -516,9 +287,9 @@ EOF
   "${HELM}" repo add bitnami https://charts.bitnami.com/bitnami >/dev/null
   "${HELM}" repo update
   "${HELM}" install mariadb bitnami/mariadb \
-      --version 24.0.2 \
-      --values <(echo "$values") \
-      --wait
+    --version 24.0.2 \
+    --values <(echo "$values") \
+    --wait
 }
 
 cleanup_mariadb() {
@@ -555,7 +326,7 @@ test_create_user() {
 test_update_user_password() {
   echo_step "test updating MySQL User password"
   local user_pw="newpassword"
-  "${KUBECTL}" create secret generic example-pw --from-literal password="${user_pw}" --dry-run -oyaml | \
+  "${KUBECTL}" create secret generic example-pw --from-literal password="${user_pw}" --dry-run -oyaml |
     "${KUBECTL}" apply -f -
 
   # trigger reconcile
@@ -595,9 +366,12 @@ cleanup_test_resources() {
 
 setup_cluster
 setup_crossplane
-setup_local_registry
-push_xpkg_to_registry
 setup_provider
+
+if [ "${QUICK_TEST:-}" == "true" ]; then
+  echo_success "Quick test passed: provider is healthy and running."
+  exit 0
+fi
 
 echo_step "--- INTEGRATION TESTS - NO TLS ---"
 
