@@ -45,15 +45,19 @@ type mockDB struct {
 func (m mockDB) ExecTx(ctx context.Context, ql []xsql.Query) error {
 	return m.MockExecTx(ctx, ql)
 }
+
 func (m mockDB) Exec(ctx context.Context, q xsql.Query) error {
 	return m.MockExec(ctx, q)
 }
+
 func (m mockDB) Scan(ctx context.Context, q xsql.Query, dest ...interface{}) error {
 	return m.MockScan(ctx, q, dest...)
 }
+
 func (m mockDB) Query(ctx context.Context, q xsql.Query) (*sql.Rows, error) {
 	return &sql.Rows{}, nil
 }
+
 func (m mockDB) GetConnectionDetails(username, password string) managed.ConnectionDetails {
 	return m.MockGetConnectionDetails(username, password)
 }

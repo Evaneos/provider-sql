@@ -359,7 +359,6 @@ func (c *external) Update(ctx context.Context, mg resource.Managed) (managed.Ext
 
 	privs := privilegesToClauses(cr.Spec.ForProvider.Privileges)
 	cp, err := changedPrivs(cr.Status.AtProvider.PrivilegesAsClauses, privs)
-
 	if err != nil {
 		return managed.ExternalUpdate{}, errors.Wrap(err, errUpdateRole)
 	}

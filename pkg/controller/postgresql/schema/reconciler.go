@@ -250,7 +250,6 @@ func createSchemaQueries(sp v1alpha1.SchemaParameters, ql *[]xsql.Query, en stri
 			xsql.Query{String: "REVOKE ALL ON SCHEMA PUBLIC FROM PUBLIC;"},
 		)
 	}
-
 }
 
 func updateSchemaQueries(sp v1alpha1.SchemaParameters, ql *[]xsql.Query, en string) { // nolint: gocyclo

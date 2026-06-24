@@ -18,12 +18,12 @@ setup_postgresdb_no_tls() {
   echo_sub_step "Helm upgrade --install bitnami/postgresql (no persistence)"
   set +e
   "${HELM}" upgrade --install postgresdb bitnami/postgresql \
-      --version 18.2.0  \
-      --set auth.postgresPassword="${postgres_root_pw}" \
-      --set primary.persistence.enabled=false \
-      --wait \
-      --timeout 10m \
-      --debug
+    --version 18.2.0 \
+    --set auth.postgresPassword="${postgres_root_pw}" \
+    --set primary.persistence.enabled=false \
+    --wait \
+    --timeout 10m \
+    --debug
   rc=$?
   set -e
   if [ $rc -ne 0 ]; then
@@ -36,16 +36,16 @@ setup_postgresdb_no_tls() {
   echo_step_completed
 
   echo_sub_step "Create connection secret postgresdb-creds"
-    "${KUBECTL}" create secret generic postgresdb-creds \
-      --from-literal=username="postgres" \
-      --from-literal=password="${postgres_root_pw}" \
-      --from-literal=endpoint="postgresdb-postgresql.default.svc.cluster.local" \
-      --from-literal=port="5432"
+  "${KUBECTL}" create secret generic postgresdb-creds \
+    --from-literal=username="postgres" \
+    --from-literal=password="${postgres_root_pw}" \
+    --from-literal=endpoint="postgresdb-postgresql.default.svc.cluster.local" \
+    --from-literal=port="5432"
   echo_step_completed
 
   # Start port-forward; ignore output filtering failures under pipefail
   echo_sub_step "Start port-forward to svc/postgresdb-postgresql:5432"
-  ( "${KUBECTL}" port-forward --namespace default svc/postgresdb-postgresql 5432:5432 | grep -v "Handling connection for" || true ) &
+  ("${KUBECTL}" port-forward --namespace default svc/postgresdb-postgresql 5432:5432 | grep -v "Handling connection for" || true) &
   PORT_FORWARD_PID=$!
   # Wait for local port to be ready
   for i in {1..20}; do
@@ -63,7 +63,8 @@ setup_postgresdb_no_tls() {
 
 setup_provider_config_postgres_no_tls() {
   echo_step "creating ProviderConfig for PostgresDb with no TLS"
-  local yaml="$( cat <<EOF
+  local yaml="$(
+    cat <<EOF
 apiVersion: postgresql.sql.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
@@ -119,43 +120,43 @@ delete_grantable_objects() {
   fi
 }
 
-setup_postgresdb_tests(){
-# install provider resources
-echo_step "creating PostgresDB Database resource"
-# create DB
-"${KUBECTL}" apply -f ${projectdir}/examples/postgresql/database.yaml
+setup_postgresdb_tests() {
+  # install provider resources
+  echo_step "creating PostgresDB Database resource"
+  # create DB
+  "${KUBECTL}" apply -f ${projectdir}/examples/postgresql/database.yaml
 
-echo_step "creating PostgresDB Role resource"
-# create grant
-"${KUBECTL}" apply -f ${projectdir}/examples/postgresql/role.yaml
+  echo_step "creating PostgresDB Role resource"
+  # create grant
+  "${KUBECTL}" apply -f ${projectdir}/examples/postgresql/role.yaml
 
-echo_step "creating PostgresDB Schema resources"
-# create grant
-"${KUBECTL}" apply -f ${projectdir}/examples/postgresql/schema.yaml
+  echo_step "creating PostgresDB Schema resources"
+  # create grant
+  "${KUBECTL}" apply -f ${projectdir}/examples/postgresql/schema.yaml
 
-echo_step "check if Role is ready"
-"${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/role.yaml
-echo_step_completed
+  echo_step "check if Role is ready"
+  "${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/role.yaml
+  echo_step_completed
 
-echo_step "check if database is ready"
-"${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/database.yaml
-echo_step_completed
+  echo_step "check if database is ready"
+  "${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/database.yaml
+  echo_step_completed
 
-echo_step "check if schema is ready"
-"${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/schema.yaml
-echo_step_completed
+  echo_step "check if schema is ready"
+  "${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/schema.yaml
+  echo_step_completed
 
-echo_step "create grantable objects"
-create_grantable_objects
-echo_step_completed
+  echo_step "create grantable objects"
+  create_grantable_objects
+  echo_step_completed
 
-echo_step "creating PostgresDB Grant resource"
-# create grant
-"${KUBECTL}" apply -f ${projectdir}/examples/postgresql/grant.yaml
+  echo_step "creating PostgresDB Grant resource"
+  # create grant
+  "${KUBECTL}" apply -f ${projectdir}/examples/postgresql/grant.yaml
 
-echo_step "check if grant is ready"
-"${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/grant.yaml
-echo_step_completed
+  echo_step "check if grant is ready"
+  "${KUBECTL}" wait --timeout 2m --for condition=Ready -f ${projectdir}/examples/postgresql/grant.yaml
+  echo_step_completed
 }
 
 check_all_roles_privileges() {
@@ -173,30 +174,30 @@ check_all_roles_privileges() {
   # Iterate over roles and expected privileges
   role_index=1
   for role in $roles; do
-      expected_privileges=$(echo "$privileges" | cut -d ' ' -f $role_index)
-      check_role_privileges "$role" "$expected_privileges" "${postgres_root_pw}" "$TARGET_DB"
-      role_index=$((role_index + 1))
+    expected_privileges=$(echo "$privileges" | cut -d ' ' -f $role_index)
+    check_role_privileges "$role" "$expected_privileges" "${postgres_root_pw}" "$TARGET_DB"
+    role_index=$((role_index + 1))
   done
 
   echo_step_completed
 }
 
 check_role_privileges() {
-    local role=$1
-    local expected_privileges=$2
-    local target_db=$4
+  local role=$1
+  local expected_privileges=$2
+  local target_db=$4
 
-    echo -n "Privileges for role: $role (expected: $expected_privileges)"
+  echo -n "Privileges for role: $role (expected: $expected_privileges)"
 
-    result=$(PGPASSWORD="$3" psql -h localhost -p 5432 -U postgres -d postgres -wtAc" SELECT CASE WHEN has_database_privilege('$role', '$target_db', 'CONNECT') THEN 'CONNECT' ELSE NULL END, CASE WHEN has_database_privilege('$role', '$target_db', 'CREATE') THEN 'CREATE' ELSE NULL END, CASE WHEN has_database_privilege('$role', '$target_db', 'TEMP') THEN 'TEMP' ELSE NULL END " | tr '\n' ',' | sed 's/,$//')
+  result=$(PGPASSWORD="$3" psql -h localhost -p 5432 -U postgres -d postgres -wtAc" SELECT CASE WHEN has_database_privilege('$role', '$target_db', 'CONNECT') THEN 'CONNECT' ELSE NULL END, CASE WHEN has_database_privilege('$role', '$target_db', 'CREATE') THEN 'CREATE' ELSE NULL END, CASE WHEN has_database_privilege('$role', '$target_db', 'TEMP') THEN 'TEMP' ELSE NULL END " | tr '\n' ',' | sed 's/,$//')
 
-    if [ "$result" = "$expected_privileges" ]; then
-        echo " condition met"
-    else
-        echo ""
-        echo_error "ERROR: Privileges for $role do not match expected. Found: $result, Expected: $expected_privileges"
-        echo ""
-    fi
+  if [ "$result" = "$expected_privileges" ]; then
+    echo " condition met"
+  else
+    echo ""
+    echo_error "ERROR: Privileges for $role do not match expected. Found: $result, Expected: $expected_privileges"
+    echo ""
+  fi
 }
 
 check_all_schema_privileges() {
@@ -225,7 +226,7 @@ check_all_schema_privileges() {
   echo_step_completed
 }
 
-check_privileges(){
+check_privileges() {
   local target_db=$1
   local object=$2
   local role=$3
@@ -245,7 +246,7 @@ check_privileges(){
   fi
 }
 
-check_schema_privileges(){
+check_schema_privileges() {
   local role=$1
   local expected_privileges=$2
   local target_db=$4
@@ -256,7 +257,7 @@ check_schema_privileges(){
   check_privileges $target_db "schema $target_db.$target_schema" $role $expected_privileges "$request"
 }
 
-check_table_privileges(){
+check_table_privileges() {
   target_db="db1"
   schema="public"
   table="test_table"
@@ -268,7 +269,7 @@ check_table_privileges(){
   check_privileges $target_db "table $schema.$table" $role $expected_privileges "$request"
 }
 
-check_sequence_privileges(){
+check_sequence_privileges() {
   target_db="db1"
   schema="public"
   sequence="test_sequence"
@@ -280,7 +281,7 @@ check_sequence_privileges(){
   check_privileges $target_db "sequence $schema.$sequence" $role $expected_privileges "$request"
 }
 
-check_routine_privileges(){
+check_routine_privileges() {
   target_db="db1"
   schema="public"
   routine="test_procedure"
@@ -292,7 +293,7 @@ check_routine_privileges(){
   check_privileges $target_db "routine $schema.$routine" $role $expected_privileges "$request"
 }
 
-check_column_privileges(){
+check_column_privileges() {
   target_db="db1"
   schema="public"
   table="test_table_column"
@@ -305,7 +306,7 @@ check_column_privileges(){
   check_privileges $target_db "column $column on table $schema.$table" $role $expected_privileges "$request"
 }
 
-check_foreign_data_wrapper_privileges(){
+check_foreign_data_wrapper_privileges() {
   target_db="db1"
   foreign_data_wrapper="test_foreign_data_wrapper"
   role='no-grants-role'
@@ -316,7 +317,7 @@ check_foreign_data_wrapper_privileges(){
   check_privileges $target_db "foreign data wrapper $foreign_data_wrapper" $role $expected_privileges "$request"
 }
 
-check_foreign_server_privileges(){
+check_foreign_server_privileges() {
   target_db="db1"
   foreign_server="test_foreign_server"
   role='no-grants-role'
@@ -327,7 +328,7 @@ check_foreign_server_privileges(){
   check_privileges $target_db "foreign server $foreign_server" $role $expected_privileges "$request"
 }
 
-setup_observe_only_database(){
+setup_observe_only_database() {
   echo_step "create pre-existing database for observe only"
 
   local datname
@@ -336,7 +337,7 @@ setup_observe_only_database(){
   echo_step_completed
 }
 
-check_observe_only_database(){
+check_observe_only_database() {
   echo_step "check if observe only database is preserved after deletion"
 
   # Delete the database kubernetes object, it should not delete the database
@@ -346,11 +347,11 @@ check_observe_only_database(){
   datname="$(PGPASSWORD="${postgres_root_pw}" psql -h localhost -p 5432 -U postgres -wtAc "SELECT datname FROM pg_database WHERE datname = 'db-observe';")"
 
   if [[ "$datname" == "db-observe" ]]; then
-      echo "Database db-observe is still present"
-      echo_info "OK"
+    echo "Database db-observe is still present"
+    echo_info "OK"
   else
-      echo "Database db-observe was NOT preserved"
-      echo_error "Not OK"
+    echo "Database db-observe was NOT preserved"
+    echo_error "Not OK"
   fi
 
   # Clean up
@@ -359,7 +360,7 @@ check_observe_only_database(){
   echo_step_completed
 }
 
-check_custom_object_privileges(){
+check_custom_object_privileges() {
   echo_step "check if custom_object_privileges privileges are set properly"
 
   check_table_privileges
@@ -372,7 +373,7 @@ check_custom_object_privileges(){
   echo_step_completed
 }
 
-delete_postgresdb_resources(){
+delete_postgresdb_resources() {
   echo_step "deleting grantable resources"
   delete_grantable_objects
 

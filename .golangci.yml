@@ -6,17 +6,12 @@ formatters:
   # Enable specific formatter.
   # Default: [] (uses standard Go formatting)
   enable:
-    - gofmt
+    - gofumpt
     - goimports
     # - gci
-    # - gofumpt
     # - golines
 
   settings:
-    gofmt:
-      # simplify code: gofmt with `-s` option, true by default
-      simplify: true
-
     goimports:
       # put imports beginning with prefix after 3rd-party packages
       local-prefixes:

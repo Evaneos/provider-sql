@@ -99,7 +99,8 @@ func getSecret(ctx context.Context, kube client.Client, sel xpv1.SecretKeySelect
 	secret := &corev1.Secret{}
 	if err := kube.Get(ctx, types.NamespacedName{
 		Namespace: sel.Namespace,
-		Name:      sel.Name}, secret); err != nil {
+		Name:      sel.Name,
+	}, secret); err != nil {
 		return nil, fmt.Errorf("cannot get Secret %q in namespace %q: %w", sel.Name, sel.Namespace, err)
 	}
 

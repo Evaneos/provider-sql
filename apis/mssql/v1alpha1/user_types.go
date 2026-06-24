@@ -59,8 +59,7 @@ type UserParameters struct {
 }
 
 // A UserObservation represents the observed state of a MSSQL user.
-type UserObservation struct {
-}
+type UserObservation struct{}
 
 // +kubebuilder:object:root=true
 

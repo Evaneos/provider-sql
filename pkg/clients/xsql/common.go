@@ -2,9 +2,8 @@ package xsql
 
 import (
 	"context"
-	"errors"
-
 	"database/sql"
+	"errors"
 
 	"github.com/crossplane/crossplane-runtime/pkg/reconciler/managed"
 )

@@ -373,7 +373,6 @@ func selectSequenceGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error 
 }
 
 func selectTableGrantQuery(gp v1alpha1.GrantParameters, q *xsql.Query) error {
-
 	gro := gp.WithOption != nil && *gp.WithOption == v1alpha1.GrantOptionGrant
 
 	ep := gp.ExpandPrivileges()
@@ -964,7 +963,6 @@ func (c *external) Observe(ctx context.Context, mg resource.Managed) (managed.Ex
 	var query xsql.Query
 
 	err := selectGrantQuery(gp, &query)
-
 	if err != nil {
 		return managed.ExternalObservation{}, err
 	}

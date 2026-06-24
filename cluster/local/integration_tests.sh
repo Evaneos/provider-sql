@@ -8,32 +8,32 @@ GRN='\033[0;32m'
 RED='\033[0;31m'
 NOC='\033[0m' # No Color
 echo_info() {
-    printf "\n${BLU}%s${NOC}" "$1"
+  printf "\n${BLU}%s${NOC}" "$1"
 }
 echo_step() {
-    printf "\n${BLU}>>>>>>> %s${NOC}\n" "$1"
+  printf "\n${BLU}>>>>>>> %s${NOC}\n" "$1"
 }
 echo_sub_step() {
-    printf "\n${BLU}>>> %s${NOC}\n" "$1"
+  printf "\n${BLU}>>> %s${NOC}\n" "$1"
 }
 
 echo_step_completed() {
-    printf "${GRN} [✔]${NOC}"
+  printf "${GRN} [✔]${NOC}"
 }
 
 echo_success() {
-    printf "\n${GRN}%s${NOC}\n" "$1"
+  printf "\n${GRN}%s${NOC}\n" "$1"
 }
 echo_warn() {
-    printf "\n${YLW}%s${NOC}" "$1"
+  printf "\n${YLW}%s${NOC}" "$1"
 }
 echo_error() {
-    printf "\n${RED}%s${NOC}" "$1"
-    exit 1
+  printf "\n${RED}%s${NOC}" "$1"
+  exit 1
 }
 
 # ------------------------------
-projectdir="$( cd "$( dirname "${BASH_SOURCE[0]}")"/../.. && pwd )"
+projectdir="$(cd "$(dirname "${BASH_SOURCE[0]}")"/../.. && pwd)"
 
 # get the build environment variables from the special build.vars target in the main makefile
 eval $(make --no-print-directory -C ${projectdir} build.vars)
@@ -56,7 +56,6 @@ K8S_CLUSTER="${K8S_CLUSTER:-${BUILD_REGISTRY}-inttests}"
 #  - USE_OCI=true  => Push .xpkg into an in-cluster registry and install Provider from OCI (no host cache, no PVC)
 #  - USE_OCI=false => Extract .xpkg to .gz on host and mount as cache for Crossplane (offline local cache)
 USE_OCI=${USE_OCI:-true}
-
 
 PACKAGE_NAME="provider-sql"
 MARIADB_ROOT_PW=$(openssl rand -base64 32)
@@ -104,7 +103,8 @@ setup_cluster() {
 
   if [ "${USE_OCI}" = true ]; then
     echo_step "creating k8s cluster (no cache mount) using kind ${KIND_VERSION} and ${node_image}"
-    local config="$( cat <<EOF
+    local config="$(
+      cat <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -120,7 +120,8 @@ EOF
     chmod 644 "${cache_path}/${PACKAGE_NAME}-${VERSION}.gz"
 
     echo_step "creating k8s cluster (with cache mount) using kind ${KIND_VERSION} and ${node_image}"
-    local config="$( cat <<EOF
+    local config="$(
+      cat <<EOF
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
@@ -143,7 +144,8 @@ EOF
   if [ "${USE_OCI}" != true ]; then
     echo_step "create persistent volume for mounting package-cache"
 
-    local pv_yaml="$( cat <<EOF
+    local pv_yaml="$(
+      cat <<EOF
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -165,7 +167,8 @@ EOF
 
     echo_step "create persistent volume claim for mounting package-cache"
 
-    local pvc_yaml="$( cat <<EOF
+    local pvc_yaml="$(
+      cat <<EOF
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -209,7 +212,8 @@ setup_crossplane() {
 setup_local_registry() {
   [ "${USE_OCI}" = true ] || return 0
   echo_step "deploy in-cluster OCI registry"
-  local reg_yaml="$( cat <<EOF
+  local reg_yaml="$(
+    cat <<EOF
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -254,7 +258,10 @@ EOF
 
   echo_step "port-forward registry for pushing xpkg"
   mkdir -p "${projectdir}/.work"
-  ( kubectl -n crossplane-system port-forward svc/registry 5000:5000 >/dev/null 2>&1 & echo $! >"${projectdir}/.work/registry-pf.pid" )
+  (
+    kubectl -n crossplane-system port-forward svc/registry 5000:5000 >/dev/null 2>&1 &
+    echo $! >"${projectdir}/.work/registry-pf.pid"
+  )
   for i in {1..20}; do nc -z localhost 5000 && break || sleep 0.5; done
 }
 
@@ -274,7 +281,8 @@ setup_provider() {
 
   if [ "${USE_OCI}" = true ]; then
     echo_sub_step "Provider package from OCI: registry.crossplane-system.svc.cluster.local:5000/${PACKAGE_NAME}:latest"
-    local yaml="$( cat <<EOF
+    local yaml="$(
+      cat <<EOF
 apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
 metadata:
@@ -305,7 +313,8 @@ EOF
     echo "${yaml}" | "${KUBECTL}" apply -f -
   else
     echo_sub_step "Provider package from local cache: ${PACKAGE_NAME}-${VERSION}.gz"
-    local yaml="$( cat <<EOF
+    local yaml="$(
+      cat <<EOF
 apiVersion: pkg.crossplane.io/v1beta1
 kind: DeploymentRuntimeConfig
 metadata:
@@ -362,7 +371,7 @@ cleanup_provider() {
     if [[ $current -ge $timeout ]]; then
       echo_error "timeout of ${timeout}s has been reached"
     fi
-    sleep $step;
+    sleep $step
   done
 }
 
@@ -383,21 +392,21 @@ setup_tls_certs() {
 
   echo_step "creating secret for the TLS certificates and keys"
   "${KUBECTL}" create secret generic mariadb-server-tls \
-      --from-file=ca-cert.pem \
-      --from-file=server-cert.pem \
-      --from-file=server-key.pem
+    --from-file=ca-cert.pem \
+    --from-file=server-cert.pem \
+    --from-file=server-key.pem
 
   echo_step "creating secret for the client TLS certificates and keys"
   "${KUBECTL}" create secret generic mariadb-client-tls \
-      --from-file=ca-cert.pem \
-      --from-file=client-cert.pem \
-      --from-file=client-key.pem
+    --from-file=ca-cert.pem \
+    --from-file=client-cert.pem \
+    --from-file=client-key.pem
 }
 
 cleanup_tls_certs() {
   echo_step "cleaning up TLS certificate files and secrets"
   for file in *.pem *.srl; do
-      rm -f "$file"
+    rm -f "$file"
   done
   "${KUBECTL}" delete secret mariadb-server-tls
   "${KUBECTL}" delete secret mariadb-client-tls
@@ -405,7 +414,8 @@ cleanup_tls_certs() {
 
 setup_provider_config_no_tls() {
   echo_step "creating ProviderConfig with no TLS"
-  local yaml="$( cat <<EOF
+  local yaml="$(
+    cat <<EOF
 apiVersion: mysql.sql.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
@@ -424,7 +434,8 @@ EOF
 
 setup_provider_config_tls() {
   echo_step "creating ProviderConfig with TLS"
-  local yaml="$( cat <<EOF
+  local yaml="$(
+    cat <<EOF
 apiVersion: mysql.sql.crossplane.io/v1alpha1
 kind: ProviderConfig
 metadata:
@@ -467,17 +478,17 @@ cleanup_provider_config() {
 setup_mariadb_no_tls() {
   echo_step "installing MariaDB with no TLS"
   "${KUBECTL}" create secret generic mariadb-creds \
-  --from-literal=username="root" \
-  --from-literal=password="${MARIADB_ROOT_PW}" \
-  --from-literal=endpoint="mariadb.default.svc.cluster.local" \
-  --from-literal=port="3306"
+    --from-literal=username="root" \
+    --from-literal=password="${MARIADB_ROOT_PW}" \
+    --from-literal=endpoint="mariadb.default.svc.cluster.local" \
+    --from-literal=port="3306"
 
   "${HELM}" repo add bitnami https://charts.bitnami.com/bitnami >/dev/null
   "${HELM}" repo update
   "${HELM}" install mariadb bitnami/mariadb \
-      --version 24.0.2 \
-      --set auth.rootPassword="${MARIADB_ROOT_PW}" \
-      --wait
+    --version 24.0.2 \
+    --set auth.rootPassword="${MARIADB_ROOT_PW}" \
+    --wait
 }
 
 setup_mariadb_tls() {
@@ -491,7 +502,8 @@ setup_mariadb_tls() {
     --from-file=client-cert.pem \
     --from-file=client-key.pem
 
-  local values=$(cat <<EOF
+  local values=$(
+    cat <<EOF
 auth:
   rootPassword: ${MARIADB_ROOT_PW}
 primary:
@@ -516,9 +528,9 @@ EOF
   "${HELM}" repo add bitnami https://charts.bitnami.com/bitnami >/dev/null
   "${HELM}" repo update
   "${HELM}" install mariadb bitnami/mariadb \
-      --version 24.0.2 \
-      --values <(echo "$values") \
-      --wait
+    --version 24.0.2 \
+    --values <(echo "$values") \
+    --wait
 }
 
 cleanup_mariadb() {
@@ -555,7 +567,7 @@ test_create_user() {
 test_update_user_password() {
   echo_step "test updating MySQL User password"
   local user_pw="newpassword"
-  "${KUBECTL}" create secret generic example-pw --from-literal password="${user_pw}" --dry-run -oyaml | \
+  "${KUBECTL}" create secret generic example-pw --from-literal password="${user_pw}" --dry-run -oyaml |
     "${KUBECTL}" apply -f -
 
   # trigger reconcile

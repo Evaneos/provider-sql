@@ -61,9 +61,7 @@ const (
 	maxConcurrency     = 5
 )
 
-var (
-	grantRegex = regexp.MustCompile(`^GRANT (.+) ON (\S+)\.(\S+) TO \S+@\S+?(\sWITH GRANT OPTION)?$`)
-)
+var grantRegex = regexp.MustCompile(`^GRANT (.+) ON (\S+)\.(\S+) TO \S+@\S+?(\sWITH GRANT OPTION)?$`)
 
 // Setup adds a controller that reconciles Grant managed resources.
 func Setup(mgr ctrl.Manager, o xpcontroller.Options) error {
@@ -233,7 +231,6 @@ func (c *external) getPrivileges(ctx context.Context, username, host, dbname, ta
 func (c *external) parseGrantRows(ctx context.Context, username, host, dbname, table string) ([]string, error) {
 	query := fmt.Sprintf("SHOW GRANTS FOR %s@%s", mysql.QuoteValue(username), mysql.QuoteValue(host))
 	rows, err := c.db.Query(ctx, xsql.Query{String: query})
-
 	if err != nil {
 		return nil, err
 	}

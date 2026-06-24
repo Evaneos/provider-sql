@@ -65,10 +65,12 @@ const (
 	RoleForeignServer      GrantType = "ROLE_FOREIGN_SERVER"
 )
 
-type marker struct{}
-type stringSet struct {
-	elements map[string]marker
-}
+type (
+	marker    struct{}
+	stringSet struct {
+		elements map[string]marker
+	}
+)
 
 func newStringSet() *stringSet {
 	return &stringSet{
