@@ -35,6 +35,7 @@ GOLANGCILINT_VERSION = 2.1.2
 # Setup Kubernetes tools
 KIND_NODE_IMAGE_TAG ?= v1.23.4
 DOCKER_REGISTRY ?= "xpkg.upbound.io"
+CROSSPLANE_CLI_VERSION ?= v2.2.1
 -include build/makelib/k8s_tools.mk
 
 # ====================================================================================
@@ -52,6 +53,7 @@ XPKG_REG_ORGS ?= ghcr.io/evaneos
 XPKG_REG_ORGS_NO_PROMOTE ?= xpkg.upbound.io/crossplane-contrib
 XPKGS = provider-sql
 -include build/makelib/xpkg.mk
+-include build/makelib/local.xpkg.mk
 
 # NOTE(hasheddan): we force image building to happen prior to xpkg build so that
 # we ensure image is present in daemon.
@@ -82,10 +84,16 @@ generate: crds.clean
 # integration tests
 e2e.run: test-integration
 
+CROSSPLANE_HELM_CHANNEL ?= stable
+CROSSPLANE_HELM_CHART_VERSION ?=
+
 # Run integration tests.
-test-integration: $(KIND) $(KUBECTL) $(UP) $(HELM)
+test-integration: $(KIND) $(KUBECTL) $(CROSSPLANE_CLI) $(HELM)
 	@$(INFO) running integration tests using kind $(KIND_VERSION)
-	@KIND_NODE_IMAGE_TAG=${KIND_NODE_IMAGE_TAG} $(ROOT_DIR)/cluster/local/integration_tests.sh || $(FAIL)
+	@KIND_NODE_IMAGE_TAG=${KIND_NODE_IMAGE_TAG} \
+	  CROSSPLANE_HELM_CHANNEL=${CROSSPLANE_HELM_CHANNEL} \
+	  CROSSPLANE_HELM_CHART_VERSION=${CROSSPLANE_HELM_CHART_VERSION} \
+	  $(ROOT_DIR)/cluster/local/integration_tests.sh || $(FAIL)
 	@$(OK) integration tests passed
 
 # Update the submodules, such as the common build scripts.
@@ -102,10 +110,10 @@ submodules:
 go.cachedir:
 	@go env GOCACHE
 
-# NOTE(hasheddan): we must ensure up is installed in tool cache prior to build
-# as including the k8s_tools machinery prior to the xpkg machinery sets UP to
+# NOTE(hasheddan): we must ensure the crossplane CLI is installed in tool cache prior to build
+# as including the k8s_tools machinery prior to the xpkg machinery sets CROSSPLANE_CLI to
 # point to tool cache.
-build.init: $(UP)
+build.init: $(CROSSPLANE_CLI)
 
 # This is for running out-of-cluster locally, and is for convenience. Running
 # this make target will print out the command which was used. For more control,
