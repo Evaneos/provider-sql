@@ -42,3 +42,16 @@ jobs:
       repository_name: ${{ github.event.repository.name }}
     secrets:
       PLATFORM_TRIAGE_APP_PRIVATE_KEY: ${{ secrets.PLATFORM_TRIAGE_APP_PRIVATE_KEY }}
+
+  # Relance unique : l'API GraphQL de GitHub échoue parfois de façon passagère.
+  # Rejouer le triage ne crée pas de doublon, mais un item ajouté au board par
+  # le premier passage n'est pas remonté en tête. Le job en échec reste rouge.
+  triage-retry:
+    needs: triage
+    if: failure()
+    uses: evaneos/team-platform/.github/workflows/triage.yaml@main
+    with:
+      item_number: ${{ github.event.issue.number || github.event.pull_request.number || fromJSON(github.event.inputs.item_number) }}
+      repository_name: ${{ github.event.repository.name }}
+    secrets:
+      PLATFORM_TRIAGE_APP_PRIVATE_KEY: ${{ secrets.PLATFORM_TRIAGE_APP_PRIVATE_KEY }}
